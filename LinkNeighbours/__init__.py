@@ -6,6 +6,7 @@ from aqt.qt import *
 from aqt.utils import showInfo
 
 import json
+import os
 
 # Global variable to store connection rules
 connection_rules = {}
@@ -151,24 +152,89 @@ def update_link_neighbours_menu():
         link_neighbours_menu.addAction(rule_action)
 
 
+class NoteTemplateSelectionDialog(QDialog):
+    """Dialog for selecting a note template before creating connection rules"""
+    
+    def __init__(self):
+        QDialog.__init__(self, mw)
+        self.selected_template = None
+        self.template_list = QListWidget()
+        self.confirm_button = QPushButton("Confirm Selection")
+        self.cancel_button = QPushButton("Cancel")
+        self.setup_ui()
+        
+    def setup_ui(self):
+        """Set up the dialog UI"""
+        self.setWindowTitle("Select Note Template")
+        self.setModal(True)
+        
+        layout = QVBoxLayout()
+        
+        # Instructions label
+        instruction_label = QLabel("Please select a note template to create connection rules for:")
+        instruction_label.setWordWrap(True)
+        layout.addWidget(instruction_label)
+        
+        # Template list
+        layout.addWidget(self.template_list)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.confirm_button)
+        button_layout.addWidget(self.cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+        
+        # Populate templates
+        self.populate_templates()
+        
+        # Connect signals
+        qconnect(self.confirm_button.clicked, self.confirm_selection)
+        qconnect(self.cancel_button.clicked, self.reject)
+        qconnect(self.template_list.itemDoubleClicked, self.confirm_selection)
+        
+    def populate_templates(self):
+        """Populate the template list with available note types"""
+        if mw.col:
+            note_types = mw.col.models.all()
+            for nt in note_types:
+                item = QListWidgetItem(nt['name'])
+                item.setData(Qt.ItemDataRole.UserRole, nt['id'])
+                self.template_list.addItem(item)
+                
+    def confirm_selection(self):
+        """Confirm the selected template"""
+        selected_items = self.template_list.selectedItems()
+        if selected_items:
+            self.selected_template = selected_items[0].text()
+            self.accept()
+
+
 def open_new_rule_dialog():
     """Open dialog to create new connection rule"""
-    dialog = ConnectionRuleDialog()
-    dialog.exec()
+    # First show the template selection dialog
+    template_dialog = NoteTemplateSelectionDialog()
+    if template_dialog.exec() == QDialog.DialogCode.Accepted:
+        # If a template was selected, open the rule editor with that template
+        if template_dialog.selected_template:
+            dialog = ConnectionRuleDialog(template_name=template_dialog.selected_template)
+            dialog.exec()
 
 
 def open_rule_editor(note_type_name):
     """Open editor for existing rule"""
-    dialog = ConnectionRuleDialog(note_type_name)
+    dialog = ConnectionRuleDialog(note_type_name=note_type_name)
     dialog.exec()
 
 
 class ConnectionRuleDialog(QDialog):
     """Dialog for creating/editing connection rules"""
 
-    def __init__(self, note_type_name=None):
+    def __init__(self, note_type_name=None, template_name=None):
         QDialog.__init__(self, mw)
         self.note_type_name = note_type_name
+        self.template_name = template_name  # 新增：模板名称参数
         self.note_type_combo = QComboBox()
         self.forward_group = self.create_connection_area("Forward Connection (Previous note <- Current note)")
         self.backward_group = self.create_connection_area("Backward Connection (Current note <- Next note)")
@@ -185,14 +251,18 @@ class ConnectionRuleDialog(QDialog):
 
         layout = QVBoxLayout()
 
-        # Note type selection
-        note_type_sel_layout = QHBoxLayout()
-        note_type_sel_layout.addWidget(QLabel("Note Type:"))
-        note_type_sel_layout.addWidget(self.note_type_combo)
-        layout.addLayout(note_type_sel_layout)
-
-        # Populate note types
-        self.populate_note_types()
+        # Note type display (不可编辑，仅显示)
+        note_type_layout = QHBoxLayout()
+        note_type_layout.addWidget(QLabel("Note Type:"))
+        self.note_type_display = QLabel()  # 显示选定的模板名称
+        if self.template_name:
+            self.note_type_display.setText(self.template_name)
+        elif self.note_type_name:
+            self.note_type_display.setText(self.note_type_name)
+        else:
+            self.note_type_display.setText("<No template selected>")
+        note_type_layout.addWidget(self.note_type_display)
+        layout.addLayout(note_type_layout)
 
         # Forward and backward connection areas
         layout.addWidget(self.forward_group)
@@ -209,14 +279,6 @@ class ConnectionRuleDialog(QDialog):
         # Connect signals
         qconnect(self.save_button.clicked, self.save_rule)
         qconnect(self.cancel_button.clicked, self.reject)
-        qconnect(self.note_type_combo.currentTextChanged, self.on_note_type_changed)
-
-    def populate_note_types(self):
-        """Populate the note type combo box"""
-        if mw.col:
-            note_types = mw.col.models.all()
-            for nt in note_types:
-                self.note_type_combo.addItem(nt['name'], nt['id'])
 
     def create_connection_area(self, title):
         """Create a group box for connection rules"""
@@ -247,45 +309,6 @@ class ConnectionRuleDialog(QDialog):
 
         return group
 
-    def on_note_type_changed(self, text):
-        """Handle template change"""
-        # Update fields based on selected template
-        self.update_fields_for_note_type(text)
-
-    def update_fields_for_note_type(self, note_type_name):
-        """Update field lists based on selected template"""
-        # Get the note type by name
-        note_types = mw.col.models.all()
-        selected_model = None
-        for nt in note_types:
-            if nt['name'] == note_type_name:
-                selected_model = nt
-                break
-
-        if selected_model:
-            # Get fields for this note type
-            fields = [f['name'] for f in selected_model['flds']]
-
-            # Update all field combo-boxes in forward and backward rules
-            self.update_field_combos(fields)
-
-    def update_field_combos(self, fields):
-        """Update all field combo-boxes with the provided fields"""
-        # Update all source and target field combo-boxes in both directions
-        for direction in ['forward', 'backward']:
-            source_combos_attr = f"{direction}_source_combos"
-            target_combos_attr = f"{direction}_target_combos"
-
-            if hasattr(self, source_combos_attr):
-                for combo in getattr(self, source_combos_attr):
-                    combo.clear()
-                    combo.addItems(fields)
-
-            if hasattr(self, target_combos_attr):
-                for combo in getattr(self, target_combos_attr):
-                    combo.clear()
-                    combo.addItems(fields)
-
     def add_rule_field(self, direction):
         """Add a new rule field row for the specified direction (forward/backward)"""
         layout = getattr(self, f"{direction}_rules_layout")
@@ -293,19 +316,20 @@ class ConnectionRuleDialog(QDialog):
         # Create a horizontal layout for the rule
         rule_layout = QHBoxLayout()
 
+        # 获取当前选中的模板的字段
+        current_template = self.note_type_display.text()
+        fields = self.get_fields_for_template(current_template)
+
         # Source field combo
         source_label = QLabel("From:")
         source_combo = QComboBox()
-        # We'll populate this later based on selected template
-        # TODO implement populate_field_combo
-        self.populate_field_combo(source_combo)
+        source_combo.addItems(fields)
         source_combo.setEditable(False)
 
         # Target field combo
         target_label = QLabel("To:")
         target_combo = QComboBox()
-        # We'll populate this later based on selected template
-        self.populate_field_combo(target_combo)
+        target_combo.addItems(fields)
         target_combo.setEditable(False)
 
         # Add to layout
@@ -326,8 +350,28 @@ class ConnectionRuleDialog(QDialog):
         layout.addLayout(rule_layout)
 
         # Store reference to combos to update later
-        # setattr(self, f"{direction}_source_combos", getattr(self, f"{direction}_source_combos", []) + [source_combo])
-        # setattr(self, f"{direction}_target_combos", getattr(self, f"{direction}_target_combos", []) + [target_combo])
+        source_combos_attr = f"{direction}_source_combos"
+        target_combos_attr = f"{direction}_target_combos"
+        
+        if not hasattr(self, source_combos_attr):
+            setattr(self, source_combos_attr, [])
+        if not hasattr(self, target_combos_attr):
+            setattr(self, target_combos_attr, [])
+            
+        getattr(self, source_combos_attr).append(source_combo)
+        getattr(self, target_combos_attr).append(target_combo)
+
+    def get_fields_for_template(self, template_name):
+        """Get fields for a specific template"""
+        if not mw.col:
+            return []
+        
+        note_types = mw.col.models.all()
+        for nt in note_types:
+            if nt['name'] == template_name:
+                return [f['name'] for f in nt['flds']]
+        
+        return []
 
     def remove_rule_field(self, rule_layout, parent_layout):
         """Remove a rule field row"""
@@ -345,10 +389,8 @@ class ConnectionRuleDialog(QDialog):
         if rule_name in connection_rules:
             rule_data = connection_rules[rule_name]
 
-            # Set the template
-            index = self.note_type_combo.findText(rule_data.get('note_type', ''))
-            if index >= 0:
-                self.note_type_combo.setCurrentIndex(index)
+            # Set the template in the display label
+            self.note_type_display.setText(rule_data.get('note_type', ''))
 
             # Load forward rules
             for rule in rule_data.get('forward_rules', []):
@@ -384,32 +426,35 @@ class ConnectionRuleDialog(QDialog):
         """Save the rule"""
         global connection_rules
 
+        # 使用显示的模板名称作为note_type_name（如果是新建规则）
         if not self.note_type_name:
-            self.note_type_name = self.note_type_combo.currentText()
+            self.note_type_name = self.note_type_display.text()
 
         # Collect rule data from UI elements
         forward_rules = []
-        for i in range(len(self.forward_source_combos)):
-            source_combo = self.forward_source_combos[i]
-            target_combo = self.forward_target_combos[i]
-            if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
-                forward_rules.append({
-                    "source_field": source_combo.currentText(),
-                    "target_field": target_combo.currentText()
-                })
+        if hasattr(self, 'forward_source_combos'):
+            for i in range(len(self.forward_source_combos)):
+                source_combo = self.forward_source_combos[i]
+                target_combo = self.forward_target_combos[i]
+                if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
+                    forward_rules.append({
+                        "source_field": source_combo.currentText(),
+                        "target_field": target_combo.currentText()
+                    })
 
         backward_rules = []
-        for i in range(len(self.backward_source_combos)):
-            source_combo = self.backward_source_combos[i]
-            target_combo = self.backward_target_combos[i]
-            if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
-                backward_rules.append({
-                    "source_field": source_combo.currentText(),
-                    "target_field": target_combo.currentText()
-                })
+        if hasattr(self, 'backward_source_combos'):
+            for i in range(len(self.backward_source_combos)):
+                source_combo = self.backward_source_combos[i]
+                target_combo = self.backward_target_combos[i]
+                if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
+                    backward_rules.append({
+                        "source_field": source_combo.currentText(),
+                        "target_field": target_combo.currentText()
+                    })
 
         rule_data = {
-            "note_type": self.note_type_combo.currentText(),
+            "note_type": self.note_type_display.text(),
             "forward_rules": forward_rules,
             "backward_rules": backward_rules
         }
@@ -427,9 +472,9 @@ def setup_review_shortcuts():
 
     def on_review_shortcuts(shortcuts, reviewer):
         # Add shortcut to connect with previous note
-        shortcuts.append(("Ctrl+Shift+P", lambda: connect_with_previous_note(reviewer)))
+        shortcuts.append(("Shift+P", lambda: connect_with_previous_note(reviewer)))
         # Add shortcut to connect with next note
-        shortcuts.append(("Ctrl+Shift+N", lambda: connect_with_next_note(reviewer)))
+        shortcuts.append(("Shift+N", lambda: connect_with_next_note(reviewer)))
 
     gui_hooks.reviewer_will_answer_card.append(on_review_shortcuts)
 
