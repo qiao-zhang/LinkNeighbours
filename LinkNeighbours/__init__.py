@@ -492,13 +492,21 @@ def setup_review_shortcuts():
     """Setup keyboard shortcuts for linking notes during review"""
     from aqt import gui_hooks
 
-    def on_review_shortcuts(shortcuts, reviewer):
+    # def on_review_shortcuts(ease_tuple, reviewer, card):
+        # This hook is for modifying the ease tuple before answering a card
+        # For adding shortcuts, we should use a different hook
+        # return ease_tuple
+
+    # Actually, shortcuts should be added via the reviewer_shortcuts hook
+    def on_shortcuts_shortcuts(shortcuts, reviewer):
         # Add shortcut to link with previous note
         shortcuts.append(("Shift+P", lambda: link_with_adjacent_note(reviewer, 'previous')))
         # Add shortcut to link with next note
         shortcuts.append(("Shift+N", lambda: link_with_adjacent_note(reviewer, 'next')))
 
-    gui_hooks.reviewer_will_answer_card.append(on_review_shortcuts)
+    # gui_hooks.reviewer_will_answer_card.append(on_review_shortcuts)
+    # gui_hooks.reviewer_shortcuts.append(on_shortcuts_shortcuts)
+    gui_hooks.reviewer_did_init.append(on_shortcuts_shortcuts)
 
 
 def find_index(notes, note: Note):
@@ -613,7 +621,7 @@ def setup_review_context_menu():
 init_link_neighbours_menu()
 
 # Setup shortcuts when addon loads
-setup_review_shortcuts()
+# setup_review_shortcuts()
 
 # Setup context menu when addon loads
 setup_review_context_menu()
