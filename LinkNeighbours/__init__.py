@@ -1,4 +1,7 @@
 # import the main window object (mw) from aqt
+from anki.cards import Card
+from anki.models import NotetypeDict
+from anki.notes import Note
 from aqt import mw
 # import all the Qt GUI library
 from aqt.qt import *
@@ -11,24 +14,38 @@ import os
 # Global variable to store connection rules
 connection_rules = {}
 
+# Debug mode flag
+DEBUG_MODE = True
+
 # Menu and submenu references
 link_neighbours_menu: QMenu = None
 
 
-def get_notes_by_model(model_name, sort_field="crt"):
+def get_notes_by_model(model_name: str, sort_field: str = None):
     """
     Get all notes of a specific model, sorted by a specified field
     :param model_name: Name of the note model/type
-    :param sort_field: Field to sort by (default: creation time)
+    :param sort_field: Field to sort by (if None, uses the model's sort field)
     :return: List of notes
     """
     if not mw.col:
         return []
 
     # Find the model by name
-    model = mw.col.models.by_name(model_name)
+    model: NotetypeDict | None = mw.col.models.by_name(model_name)
     if not model:
         return []
+
+    # If no sort field is specified, try to use the model's sort field
+    if sort_field is None:
+        # Get the sort field index from the model
+        sort_field_idx = model.get('sortf', 0)  # Default to first field if no sort field specified
+        
+        # Get the field name using the index
+        if 0 <= sort_field_idx < len(model['flds']):
+            sort_field = model['flds'][sort_field_idx]['name']
+        else:
+            sort_field = "crt"  # fallback to creation time if index is invalid
 
     # Get all note IDs for this model
     note_ids = mw.col.find_notes(f"mid:{model['id']}")
@@ -37,15 +54,17 @@ def get_notes_by_model(model_name, sort_field="crt"):
     notes = []
     for nid in note_ids:
         note = mw.col.get_note(nid)
+        # if DEBUG_MODE:
+        #     showInfo(f"Note ID: {nid}\nNote Fields: {dict(note.items())}")
         notes.append(note)
 
     # Sort notes by the specified field
-    if sort_field in [f['name'] for f in model['flds']]:
+    # if sort_field in [f['name'] for f in model['flds']]:
         # If sort_field is a custom field, sort by that field
-        notes.sort(key=lambda x: x[sort_field].lower())
-    else:
+        # notes.sort(key=lambda x: x[sort_field].lower())
+    # else:
         # Default to sorting by creation time
-        notes.sort(key=lambda x: x.id)
+        # notes.sort(key=lambda x: x.id)
 
     return notes
 
@@ -69,7 +88,7 @@ def save_connection_rules():
         json.dump(connection_rules, f, ensure_ascii=False, indent=4)
 
 
-def connect_notes_forward(current_note, previous_note, rule_data):
+def connect_notes(former_note, latter_note, rule_data):
     """
     Connect current note to previous note based on forward connection rules
     This applies the "forward connection" rules: values from current note go to previous note
@@ -79,28 +98,22 @@ def connect_notes_forward(current_note, previous_note, rule_data):
             source_field = rule["source_field"]
             target_field = rule["target_field"]
 
-            if source_field in current_note and target_field in previous_note:
-                previous_note[target_field] = current_note[source_field]
+            if source_field in latter_note and target_field in former_note:
+                former_note[target_field] = latter_note[source_field]
 
         # Save the previous note with updated fields
-        mw.col.update_note(previous_note)
+        mw.col.update_note(former_note)
 
-
-def connect_notes_backward(current_note, next_note, rule_data):
-    """
-    Connect current note to next note based on backward connection rules
-    This applies the "backward connection" rules: values from current note go to next note
-    """
     if "backward_rules" in rule_data:
         for rule in rule_data["backward_rules"]:
             source_field = rule["source_field"]
             target_field = rule["target_field"]
 
-            if source_field in current_note and target_field in next_note:
-                next_note[target_field] = current_note[source_field]
+            if source_field in former_note and target_field in latter_note:
+                latter_note[target_field] = former_note[source_field]
 
         # Save the next note with updated fields
-        mw.col.update_note(next_note)
+        mw.col.update_note(latter_note)
 
 
 def init_link_neighbours_menu():
@@ -119,12 +132,13 @@ def init_link_neighbours_menu():
     qconnect(new_rule_action.triggered, open_new_rule_dialog)
     link_neighbours_menu.addAction(new_rule_action)
 
-    # TODO 如果没有已经保存的规则集，则不需要显示Separator
-    # Add separator
-    link_neighbours_menu.addSeparator()
-
     # Load and add saved rules to submenu
     load_connection_rules()
+    
+    # Add separator only if there are saved rules
+    if connection_rules:
+        link_neighbours_menu.addSeparator()
+
     update_link_neighbours_menu()
 
     # Add the main menu to tools menu
@@ -236,7 +250,9 @@ class ConnectionRuleDialog(QDialog):
         self.note_type_name = note_type_name
         self.template_name = template_name  # 新增：模板名称参数
         self.note_type_combo = QComboBox()
-        
+
+        self.note_type_display = QLabel()  # 显示选定的模板名称
+
         self.forward_rules_layout = None
         self.backward_rules_layout = None
         self.add_forward_rule_btn = None
@@ -246,8 +262,8 @@ class ConnectionRuleDialog(QDialog):
         self.backward_source_combos = []
         self.backward_target_combos = []
         
-        self.forward_group = self.create_connection_area("Forward Connection (Previous note <- Current note)")
-        self.backward_group = self.create_connection_area("Backward Connection (Current note <- Next note)")
+        self.forward_group = self.create_connection_area("How to copy from the latter to the former", "forward")
+        self.backward_group = self.create_connection_area("How to copy from the former to the latter", "backward")
         self.save_button = QPushButton("Save")
         self.cancel_button = QPushButton("Cancel")
         self.setup_ui()
@@ -264,7 +280,6 @@ class ConnectionRuleDialog(QDialog):
         # Note type display (不可编辑，仅显示)
         note_type_layout = QHBoxLayout()
         note_type_layout.addWidget(QLabel("Note Type:"))
-        self.note_type_display = QLabel()  # 显示选定的模板名称
         if self.template_name:
             self.note_type_display.setText(self.template_name)
         elif self.note_type_name:
@@ -290,7 +305,7 @@ class ConnectionRuleDialog(QDialog):
         qconnect(self.save_button.clicked, self.save_rule)
         qconnect(self.cancel_button.clicked, self.reject)
 
-    def create_connection_area(self, title):
+    def create_connection_area(self, title, direction):
         """Create a group box for connection rules"""
         group = QGroupBox(title)
         group_layout = QVBoxLayout()
@@ -301,8 +316,7 @@ class ConnectionRuleDialog(QDialog):
         scroll_layout = QVBoxLayout(scroll_widget)
 
         # Store references to rule widgets
-        forward_or_backward = title.lower().split()[0]
-        if forward_or_backward == "forward":
+        if direction == "forward":
             self.forward_rules_layout = scroll_layout
         else:  # backward
             self.backward_rules_layout = scroll_layout
@@ -314,11 +328,11 @@ class ConnectionRuleDialog(QDialog):
 
         # Add rule button
         add_rule_btn = QPushButton("Add Rule")
-        if forward_or_backward == "forward":
+        if direction == "forward":
             self.add_forward_rule_btn = add_rule_btn
         else:  # backward
             self.add_backward_rule_btn = add_rule_btn
-        qconnect(add_rule_btn.clicked, lambda: self.add_rule_field(title.lower().split()[0]))
+        qconnect(add_rule_btn.clicked, lambda: self.add_rule_field(direction))
         group_layout.addWidget(add_rule_btn)
 
         group.setLayout(group_layout)
@@ -328,6 +342,8 @@ class ConnectionRuleDialog(QDialog):
     def add_rule_field(self, direction):
         """Add a new rule field row for the specified direction (forward/backward)"""
         layout = self.forward_rules_layout if direction == "forward" else self.backward_rules_layout
+        source = "latter" if direction == "forward" else "former"
+        target = "former" if direction == "forward" else "latter"
 
         # Create a horizontal layout for the rule
         rule_layout = QHBoxLayout()
@@ -337,13 +353,13 @@ class ConnectionRuleDialog(QDialog):
         fields = self.get_fields_for_template(current_template)
 
         # Source field combo
-        source_label = QLabel("From:")
+        source_label = QLabel(f"From (of {source}):")
         source_combo = QComboBox()
         source_combo.addItems(fields)
         source_combo.setEditable(False)
 
         # Target field combo
-        target_label = QLabel("To:")
+        target_label = QLabel(f"To (of {target}):")
         target_combo = QComboBox()
         target_combo.addItems(fields)
         target_combo.setEditable(False)
@@ -404,37 +420,31 @@ class ConnectionRuleDialog(QDialog):
             # Set the template in the display label
             self.note_type_display.setText(rule_data.get('note_type', ''))
 
-            # Load forward rules
-            for rule in rule_data.get('forward_rules', []):
-                self.add_rule_field('forward')
-                # Get the last added combos
-                if self.forward_source_combos:  # 确保列表不为空
-                    source_combo = self.forward_source_combos[-1]
-                    target_combo = self.forward_target_combos[-1]
+            # Process both forward and backward rules using a helper function
+            for direction in ['forward', 'backward']:
+                rules = rule_data.get(f'{direction}_rules', [])
+                for rule in rules:
+                    self.add_rule_field(direction)
+                    # Get the last added combos
+                    source_combos, target_combos = self._get_combos_by_direction(direction)
+                    if source_combos:  # 确保列表不为空
+                        source_combo = source_combos[-1]
+                        target_combo = target_combos[-1]
 
-                    source_index = source_combo.findText(rule.get('source_field', ''))
-                    if source_index >= 0:
-                        source_combo.setCurrentIndex(source_index)
+                        source_index = source_combo.findText(rule.get('source_field', ''))
+                        if source_index >= 0:
+                            source_combo.setCurrentIndex(source_index)
 
-                    target_index = target_combo.findText(rule.get('target_field', ''))
-                    if target_index >= 0:
-                        target_combo.setCurrentIndex(target_index)
+                        target_index = target_combo.findText(rule.get('target_field', ''))
+                        if target_index >= 0:
+                            target_combo.setCurrentIndex(target_index)
 
-            # Load backward rules
-            for rule in rule_data.get('backward_rules', []):
-                self.add_rule_field('backward')
-                # Get the last added combos
-                if self.backward_source_combos:  # 确保列表不为空
-                    source_combo = self.backward_source_combos[-1]
-                    target_combo = self.backward_target_combos[-1]
-
-                    source_index = source_combo.findText(rule.get('source_field', ''))
-                    if source_index >= 0:
-                        source_combo.setCurrentIndex(source_index)
-
-                    target_index = target_combo.findText(rule.get('target_field', ''))
-                    if target_index >= 0:
-                        target_combo.setCurrentIndex(target_index)
+    def _get_combos_by_direction(self, direction):
+        """Helper method to get the appropriate combo lists based on direction"""
+        if direction == 'forward':
+            return self.forward_source_combos, self.forward_target_combos
+        else:  # backward
+            return self.backward_source_combos, self.backward_target_combos
 
     def save_rule(self):
         """Save the rule"""
@@ -477,28 +487,43 @@ class ConnectionRuleDialog(QDialog):
 
         self.accept()
 
-# Add keyboard shortcuts for connecting notes during review
+# Add keyboard shortcuts for linking notes during review
 def setup_review_shortcuts():
-    """Setup keyboard shortcuts for connecting notes during review"""
+    """Setup keyboard shortcuts for linking notes during review"""
     from aqt import gui_hooks
 
     def on_review_shortcuts(shortcuts, reviewer):
-        # Add shortcut to connect with previous note
-        shortcuts.append(("Shift+P", lambda: connect_with_previous_note(reviewer)))
-        # Add shortcut to connect with next note
-        shortcuts.append(("Shift+N", lambda: connect_with_next_note(reviewer)))
+        # Add shortcut to link with previous note
+        shortcuts.append(("Shift+P", lambda: link_with_adjacent_note(reviewer, 'previous')))
+        # Add shortcut to link with next note
+        shortcuts.append(("Shift+N", lambda: link_with_adjacent_note(reviewer, 'next')))
 
     gui_hooks.reviewer_will_answer_card.append(on_review_shortcuts)
 
 
-def connect_with_previous_note(reviewer):
-    """Connect current note with the previous note in sequence"""
+def find_index(notes, note: Note):
+    cur = f"{dict(note.items())}"
+    i = 0
+    for item in notes:
+        cmp = f"{dict(item.items())}"
+        if cmp == cur:
+            return i
+        i += 1
+    raise ValueError('index out of range')
+
+
+def link_with_adjacent_note(reviewer, direction):
+    """
+    Link current note with adjacent note (previous or next) in sequence
+    :param reviewer: Anki reviewer object
+    :param direction: 'previous' to link with previous note, 'next' to link with next note
+    """
     if not mw.col:
         return
 
     # Get current card and note
-    current_card = reviewer.card
-    current_note = current_card.note()
+    current_card: Card = reviewer.card
+    current_note: Note = current_card.note()
 
     # Determine the note type
     model_name = current_note.note_type()['name']
@@ -513,66 +538,75 @@ def connect_with_previous_note(reviewer):
     # Get all notes of this type, sorted
     all_notes = get_notes_by_model(model_name)
 
+    # Debug information - only shown when debug flag is True
+    # if DEBUG_MODE:
+        # showInfo(f"Debug - Model name: {model_name}\nNumber of notes: {len(all_notes)}")
+        # showInfo(f"{dict(current_note.items())}")
+
     # Find current note in the list
     try:
-        current_index = all_notes.index(current_note)
+        current_index = find_index(all_notes, current_note)
+        # showInfo(f"{current_index}")
     except ValueError:
         showInfo("Current note not found in sorted list")
         return
 
-    # Check if there's a previous note
-    if current_index <= 0:
-        showInfo("No previous note to connect to")
-        return
+    # Process based on direction
+    if direction == 'previous':
+        # Check if there's a previous note
+        if current_index <= 0:
+            showInfo("No previous note to link to")
+            return
 
-    previous_note = all_notes[current_index - 1]
+        adjacent_note = all_notes[current_index - 1]
+        # Apply forward connection rules (current note -> previous note)
+        connect_notes(adjacent_note, current_note, rule_data)
+        showInfo(f"Linked current note to previous note using '{model_name}' rules")
+    elif direction == 'next':
+        # Check if there's a next note
+        if current_index >= len(all_notes) - 1:
+            showInfo("No next note to link to")
+            return
 
-    # Apply forward connection rules (current note -> previous note)
-    connect_notes_forward(current_note, previous_note, rule_data)
+        adjacent_note = all_notes[current_index + 1]
+        # Apply backward connection rules (current note -> next note)
+        connect_notes(current_note, adjacent_note, rule_data)
+        showInfo(f"Linked current note to next note using '{model_name}' rules")
 
-    showInfo(f"Connected current note to previous note using '{model_name}' rules")
+
+def link_with_previous_note(reviewer):
+    """Link current note with the previous note in sequence"""
+    link_with_adjacent_note(reviewer, 'previous')
 
 
-def connect_with_next_note(reviewer):
-    """Connect current note with the next note in sequence"""
-    if not mw.col:
-        return
+def link_with_next_note(reviewer):
+    """Link current note with the next note in sequence"""
+    link_with_adjacent_note(reviewer, 'next')
 
-    # Get current card and note
-    current_card = reviewer.card
-    current_note = current_card.note()
 
-    # Determine the note type
-    model_name = current_note.note_type()['name']
+def setup_review_context_menu():
+    """Setup context menu items for linking notes during review"""
+    from aqt import gui_hooks
+    from aqt.qt import QAction
 
-    # Check if we have rules for this note type
-    if model_name not in connection_rules:
-        showInfo(f"No connection rules defined for note type: {model_name}")
-        return
+    def on_webview_will_show_context_menu(webview, menu):
+        # Check if this is the main webview (review screen)
+        if hasattr(webview, "title") and webview.title == "main webview" and mw.state == "review":
+            # Add separator to distinguish our menu items
+            menu.addSeparator()
 
-    rule_data = connection_rules[model_name]
+            # Add "Link with Previous Note" action
+            prev_action = QAction("Link with Previous Note", mw)
+            prev_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'previous'))
+            menu.addAction(prev_action)
 
-    # Get all notes of this type, sorted
-    all_notes = get_notes_by_model(model_name)
+            # Add "Link with Next Note" action
+            next_action = QAction("Link with Next Note", mw)
+            next_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
+            menu.addAction(next_action)
 
-    # Find current note in the list
-    try:
-        current_index = all_notes.index(current_note)
-    except ValueError:
-        showInfo("Current note not found in sorted list")
-        return
-
-    # Check if there's a next note
-    if current_index >= len(all_notes) - 1:
-        showInfo("No next note to connect to")
-        return
-
-    next_note = all_notes[current_index + 1]
-
-    # Apply backward connection rules (current note -> next note)
-    connect_notes_backward(current_note, next_note, rule_data)
-
-    showInfo(f"Connected current note to next note using '{model_name}' rules")
+    # Register the hook
+    gui_hooks.webview_will_show_context_menu.append(on_webview_will_show_context_menu)
 
 
 # Initialize the menu when addon loads
@@ -580,3 +614,6 @@ init_link_neighbours_menu()
 
 # Setup shortcuts when addon loads
 setup_review_shortcuts()
+
+# Setup context menu when addon loads
+setup_review_context_menu()
