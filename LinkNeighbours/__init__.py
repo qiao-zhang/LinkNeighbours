@@ -236,6 +236,16 @@ class ConnectionRuleDialog(QDialog):
         self.note_type_name = note_type_name
         self.template_name = template_name  # 新增：模板名称参数
         self.note_type_combo = QComboBox()
+        
+        self.forward_rules_layout = None
+        self.backward_rules_layout = None
+        self.add_forward_rule_btn = None
+        self.add_backward_rule_btn = None
+        self.forward_source_combos = []
+        self.forward_target_combos = []
+        self.backward_source_combos = []
+        self.backward_target_combos = []
+        
         self.forward_group = self.create_connection_area("Forward Connection (Previous note <- Current note)")
         self.backward_group = self.create_connection_area("Backward Connection (Current note <- Next note)")
         self.save_button = QPushButton("Save")
@@ -292,7 +302,10 @@ class ConnectionRuleDialog(QDialog):
 
         # Store references to rule widgets
         forward_or_backward = title.lower().split()[0]
-        setattr(self, f"{forward_or_backward}_rules_layout", scroll_layout)
+        if forward_or_backward == "forward":
+            self.forward_rules_layout = scroll_layout
+        else:  # backward
+            self.backward_rules_layout = scroll_layout
 
         scroll_area.setWidget(scroll_widget)
         scroll_area.setWidgetResizable(True)
@@ -301,7 +314,10 @@ class ConnectionRuleDialog(QDialog):
 
         # Add rule button
         add_rule_btn = QPushButton("Add Rule")
-        setattr(self, f"add_{forward_or_backward}_rule_btn", add_rule_btn)
+        if forward_or_backward == "forward":
+            self.add_forward_rule_btn = add_rule_btn
+        else:  # backward
+            self.add_backward_rule_btn = add_rule_btn
         qconnect(add_rule_btn.clicked, lambda: self.add_rule_field(title.lower().split()[0]))
         group_layout.addWidget(add_rule_btn)
 
@@ -311,7 +327,7 @@ class ConnectionRuleDialog(QDialog):
 
     def add_rule_field(self, direction):
         """Add a new rule field row for the specified direction (forward/backward)"""
-        layout = getattr(self, f"{direction}_rules_layout")
+        layout = self.forward_rules_layout if direction == "forward" else self.backward_rules_layout
 
         # Create a horizontal layout for the rule
         rule_layout = QHBoxLayout()
@@ -350,16 +366,12 @@ class ConnectionRuleDialog(QDialog):
         layout.addLayout(rule_layout)
 
         # Store reference to combos to update later
-        source_combos_attr = f"{direction}_source_combos"
-        target_combos_attr = f"{direction}_target_combos"
-        
-        if not hasattr(self, source_combos_attr):
-            setattr(self, source_combos_attr, [])
-        if not hasattr(self, target_combos_attr):
-            setattr(self, target_combos_attr, [])
-            
-        getattr(self, source_combos_attr).append(source_combo)
-        getattr(self, target_combos_attr).append(target_combo)
+        if direction == "forward":
+            self.forward_source_combos.append(source_combo)
+            self.forward_target_combos.append(target_combo)
+        else:  # backward
+            self.backward_source_combos.append(source_combo)
+            self.backward_target_combos.append(target_combo)
 
     def get_fields_for_template(self, template_name):
         """Get fields for a specific template"""
@@ -396,31 +408,33 @@ class ConnectionRuleDialog(QDialog):
             for rule in rule_data.get('forward_rules', []):
                 self.add_rule_field('forward')
                 # Get the last added combos
-                source_combo = self.forward_source_combos[-1]
-                target_combo = self.forward_target_combos[-1]
+                if self.forward_source_combos:  # 确保列表不为空
+                    source_combo = self.forward_source_combos[-1]
+                    target_combo = self.forward_target_combos[-1]
 
-                source_index = source_combo.findText(rule.get('source_field', ''))
-                if source_index >= 0:
-                    source_combo.setCurrentIndex(source_index)
+                    source_index = source_combo.findText(rule.get('source_field', ''))
+                    if source_index >= 0:
+                        source_combo.setCurrentIndex(source_index)
 
-                target_index = target_combo.findText(rule.get('target_field', ''))
-                if target_index >= 0:
-                    target_combo.setCurrentIndex(target_index)
+                    target_index = target_combo.findText(rule.get('target_field', ''))
+                    if target_index >= 0:
+                        target_combo.setCurrentIndex(target_index)
 
             # Load backward rules
             for rule in rule_data.get('backward_rules', []):
                 self.add_rule_field('backward')
                 # Get the last added combos
-                source_combo = self.backward_source_combos[-1]
-                target_combo = self.backward_target_combos[-1]
+                if self.backward_source_combos:  # 确保列表不为空
+                    source_combo = self.backward_source_combos[-1]
+                    target_combo = self.backward_target_combos[-1]
 
-                source_index = source_combo.findText(rule.get('source_field', ''))
-                if source_index >= 0:
-                    source_combo.setCurrentIndex(source_index)
+                    source_index = source_combo.findText(rule.get('source_field', ''))
+                    if source_index >= 0:
+                        source_combo.setCurrentIndex(source_index)
 
-                target_index = target_combo.findText(rule.get('target_field', ''))
-                if target_index >= 0:
-                    target_combo.setCurrentIndex(target_index)
+                    target_index = target_combo.findText(rule.get('target_field', ''))
+                    if target_index >= 0:
+                        target_combo.setCurrentIndex(target_index)
 
     def save_rule(self):
         """Save the rule"""
@@ -432,26 +446,24 @@ class ConnectionRuleDialog(QDialog):
 
         # Collect rule data from UI elements
         forward_rules = []
-        if hasattr(self, 'forward_source_combos'):
-            for i in range(len(self.forward_source_combos)):
-                source_combo = self.forward_source_combos[i]
-                target_combo = self.forward_target_combos[i]
-                if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
-                    forward_rules.append({
-                        "source_field": source_combo.currentText(),
-                        "target_field": target_combo.currentText()
-                    })
+        for i in range(len(self.forward_source_combos)):
+            source_combo = self.forward_source_combos[i]
+            target_combo = self.forward_target_combos[i]
+            if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
+                forward_rules.append({
+                    "source_field": source_combo.currentText(),
+                    "target_field": target_combo.currentText()
+                })
 
         backward_rules = []
-        if hasattr(self, 'backward_source_combos'):
-            for i in range(len(self.backward_source_combos)):
-                source_combo = self.backward_source_combos[i]
-                target_combo = self.backward_target_combos[i]
-                if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
-                    backward_rules.append({
-                        "source_field": source_combo.currentText(),
-                        "target_field": target_combo.currentText()
-                    })
+        for i in range(len(self.backward_source_combos)):
+            source_combo = self.backward_source_combos[i]
+            target_combo = self.backward_target_combos[i]
+            if source_combo.currentIndex() != -1 and target_combo.currentIndex() != -1:
+                backward_rules.append({
+                    "source_field": source_combo.currentText(),
+                    "target_field": target_combo.currentText()
+                })
 
         rule_data = {
             "note_type": self.note_type_display.text(),
