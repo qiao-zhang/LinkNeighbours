@@ -96,8 +96,10 @@ def save_link_rules():
 
 def link_notes(former_note, latter_note, rule_data, direction: LinkDirection):
     """
-    Link current note to previous note based on forward link rules
-    This applies the "forward link" rules: values from current note go to previous note
+    Link two consecutive notes the direction given
+    If direction is from the former to the latter, then copy contents "backward" according to the backward rules
+    If direction is from the latter to the former, then copy contents "forward" according to the forward rules
+    Or have it bothways
     """
     if LinkDirection.FROM_LATTER_TO_FORMER in direction and "forward_rules" in rule_data:
         for rule in rule_data["forward_rules"]:
@@ -133,7 +135,7 @@ def init_link_neighbours_menu():
     # Create main menu
     link_neighbours_menu = QMenu("LinkNeighbours", mw)
 
-    new_rule_action = QAction("New Link Rule", mw)
+    new_rule_action = QAction("New Link Rule Set", mw)
     qconnect(new_rule_action.triggered, open_new_rule_dialog)
     link_neighbours_menu.addAction(new_rule_action)
 
@@ -253,10 +255,10 @@ class LinkRuleDialog(QDialog):
     def __init__(self, note_type_name=None, template_name=None):
         QDialog.__init__(self, mw)
         self.note_type_name = note_type_name
-        self.template_name = template_name  # 新增：模板名称参数
+        self.template_name = template_name
         self.note_type_combo = QComboBox()
 
-        self.note_type_display = QLabel()  # 显示选定的模板名称
+        self.note_type_display = QLabel()
 
         self.forward_rules_layout = None
         self.backward_rules_layout = None
