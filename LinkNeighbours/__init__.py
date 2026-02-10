@@ -12,8 +12,8 @@ import json
 import os
 from enum import Flag, auto
 
-# Global variable to store connection rules
-connection_rules = {}
+# Global variable to store link rules
+link_rules = {}
 
 # Debug mode flag
 # DEBUG_MODE = True
@@ -73,31 +73,31 @@ def get_notes_by_model(model_name: str, sort_field: str = None):
     return notes
 
 
-def load_connection_rules():
-    """Load connection rules from JSON file"""
-    global connection_rules
+def load_link_rules():
+    """Load link rules from JSON file"""
+    global link_rules
     current_folder = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(current_folder, "rules.json")
     if os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
-            connection_rules = json.load(f)
+            link_rules = json.load(f)
     else:
-        connection_rules = {}
+        link_rules = {}
 
 
-def save_connection_rules():
-    """Save connection rules to JSON file"""
-    global connection_rules
+def save_link_rules():
+    """Save link rules to JSON file"""
+    global link_rules
     current_folder = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(current_folder, "rules.json")
     with open(config_path, 'w', encoding='utf-8') as f:
-        json.dump(connection_rules, f, ensure_ascii=False, indent=4)
+        json.dump(link_rules, f, ensure_ascii=False, indent=4)
 
 
 def link_notes(former_note, latter_note, rule_data, direction: LinkDirection):
     """
-    Connect current note to previous note based on forward connection rules
-    This applies the "forward connection" rules: values from current note go to previous note
+    Link current note to previous note based on forward link rules
+    This applies the "forward link" rules: values from current note go to previous note
     """
     if LinkDirection.FROM_LATTER_TO_FORMER in direction and "forward_rules" in rule_data:
         for rule in rule_data["forward_rules"]:
@@ -133,16 +133,15 @@ def init_link_neighbours_menu():
     # Create main menu
     link_neighbours_menu = QMenu("LinkNeighbours", mw)
 
-    # Add "New Connection Rule" button
-    new_rule_action = QAction("New Connection Rule", mw)
+    new_rule_action = QAction("New Link Rule", mw)
     qconnect(new_rule_action.triggered, open_new_rule_dialog)
     link_neighbours_menu.addAction(new_rule_action)
 
     # Load and add saved rules to submenu
-    load_connection_rules()
+    load_link_rules()
 
     # Add separator only if there are saved rules
-    if connection_rules:
+    if link_rules:
         link_neighbours_menu.addSeparator()
 
     update_link_neighbours_menu()
@@ -153,7 +152,7 @@ def init_link_neighbours_menu():
 
 def update_link_neighbours_menu():
     """Update the rules submenu with saved rules"""
-    global link_neighbours_menu, connection_rules
+    global link_neighbours_menu, link_rules
 
     # Clear existing dynamic rules
     actions_to_remove = []
@@ -165,7 +164,7 @@ def update_link_neighbours_menu():
         link_neighbours_menu.removeAction(action)
 
     # Add saved rules to submenu
-    for note_type_name, _ in connection_rules.items():
+    for note_type_name, _ in link_rules.items():
         rule_action = QAction(note_type_name, mw)
         rule_action._dynamic_rule = True
         qconnect(rule_action.triggered, lambda _, n=note_type_name: open_rule_editor(n))
@@ -173,7 +172,7 @@ def update_link_neighbours_menu():
 
 
 class NoteTemplateSelectionDialog(QDialog):
-    """Dialog for selecting a note template before creating connection rules"""
+    """Dialog for selecting a note template before creating link rules"""
 
     def __init__(self):
         QDialog.__init__(self, mw)
@@ -191,7 +190,7 @@ class NoteTemplateSelectionDialog(QDialog):
         layout = QVBoxLayout()
 
         # Instructions label
-        instruction_label = QLabel("Please select a note template to create connection rules for:")
+        instruction_label = QLabel("Please select a note template to create link rules for:")
         instruction_label.setWordWrap(True)
         layout.addWidget(instruction_label)
 
@@ -232,24 +231,24 @@ class NoteTemplateSelectionDialog(QDialog):
 
 
 def open_new_rule_dialog():
-    """Open dialog to create new connection rule"""
+    """Open dialog to create new link rule"""
     # First show the template selection dialog
     template_dialog = NoteTemplateSelectionDialog()
     if template_dialog.exec() == QDialog.DialogCode.Accepted:
         # If a template was selected, open the rule editor with that template
         if template_dialog.selected_template:
-            dialog = ConnectionRuleDialog(template_name=template_dialog.selected_template)
+            dialog = LinkRuleDialog(template_name=template_dialog.selected_template)
             dialog.exec()
 
 
 def open_rule_editor(note_type_name):
     """Open editor for existing rule"""
-    dialog = ConnectionRuleDialog(note_type_name=note_type_name)
+    dialog = LinkRuleDialog(note_type_name=note_type_name)
     dialog.exec()
 
 
-class ConnectionRuleDialog(QDialog):
-    """Dialog for creating/editing connection rules"""
+class LinkRuleDialog(QDialog):
+    """Dialog for creating/editing link rules"""
 
     def __init__(self, note_type_name=None, template_name=None):
         QDialog.__init__(self, mw)
@@ -268,26 +267,26 @@ class ConnectionRuleDialog(QDialog):
         self.backward_source_combos = []
         self.backward_target_combos = []
 
-        self.forward_group = self.create_rules_area("How to link from the latter to the former",
+        self.forward_group = self.create_rules_area("How to copy contents from the latter to the former",
                                                     LinkDirection.FROM_LATTER_TO_FORMER)
-        self.backward_group = self.create_rules_area("How to link from the former to the latter",
+        self.backward_group = self.create_rules_area("How to copy contents the former to the latter",
                                                      LinkDirection.FROM_FORMER_TO_LATTER)
         self.save_button = QPushButton("Save")
         self.cancel_button = QPushButton("Cancel")
         self.setup_ui()
-        if note_type_name and note_type_name in connection_rules:
+        if note_type_name and note_type_name in link_rules:
             self.load_rule_data(note_type_name)
 
     def setup_ui(self):
         """Set up the dialog UI"""
-        self.setWindowTitle("Connection Rule Editor")
+        self.setWindowTitle("Link Rule Editor")
         self.setModal(True)
 
         layout = QVBoxLayout()
 
         # Note type display (不可编辑，仅显示)
         note_type_layout = QHBoxLayout()
-        note_type_layout.addWidget(QLabel("Note Type:"))
+        note_type_layout.addWidget(QLabel("When we link 2 notes of Note Type:"))
         if self.template_name:
             self.note_type_display.setText(self.template_name)
         elif self.note_type_name:
@@ -297,7 +296,7 @@ class ConnectionRuleDialog(QDialog):
         note_type_layout.addWidget(self.note_type_display)
         layout.addLayout(note_type_layout)
 
-        # Forward and backward connection areas
+        # Forward and backward link rules areas
         layout.addWidget(self.forward_group)
         layout.addWidget(self.backward_group)
 
@@ -314,7 +313,7 @@ class ConnectionRuleDialog(QDialog):
         qconnect(self.cancel_button.clicked, self.reject)
 
     def create_rules_area(self, title, direction: LinkDirection):
-        """Create a group box for connection rules"""
+        """Create a group box for link rules"""
         group = QGroupBox(title)
         group_layout = QVBoxLayout()
 
@@ -428,8 +427,8 @@ class ConnectionRuleDialog(QDialog):
 
     def load_rule_data(self, rule_name):
         """Load existing rule data"""
-        if rule_name in connection_rules:
-            rule_data = connection_rules[rule_name]
+        if rule_name in link_rules:
+            rule_data = link_rules[rule_name]
 
             # Set the template in the display label
             self.note_type_display.setText(rule_data.get('note_type', ''))
@@ -462,7 +461,7 @@ class ConnectionRuleDialog(QDialog):
 
     def save_rule(self):
         """Save the rule"""
-        global connection_rules
+        global link_rules
 
         # 使用显示的模板名称作为note_type_name（如果是新建规则）
         if not self.note_type_name:
@@ -495,8 +494,8 @@ class ConnectionRuleDialog(QDialog):
             "backward_rules": backward_rules
         }
 
-        connection_rules[self.note_type_name] = rule_data
-        save_connection_rules()
+        link_rules[self.note_type_name] = rule_data
+        save_link_rules()
         update_link_neighbours_menu()
 
         self.accept()
@@ -555,11 +554,11 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
     model_name = current_note.note_type()['name']
 
     # Check if we have rules for this note type
-    if model_name not in connection_rules:
-        showInfo(f"No connection rules defined for note type: {model_name}")
+    if model_name not in link_rules:
+        showInfo(f"No link rules defined for note type: {model_name}")
         return
 
-    rule_data = connection_rules[model_name]
+    rule_data = link_rules[model_name]
 
     # Get all notes of this type, sorted
     all_notes = get_notes_by_model(model_name)
@@ -582,7 +581,7 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
         direction = LinkDirection.FROM_FORMER_TO_LATTER
         if both_ways:
             direction |= LinkDirection.FROM_LATTER_TO_FORMER
-        # Apply forward connection rules (current note -> previous note)
+        # Apply forward link rules (current note -> previous note)
         link_notes(adjacent_note, current_note, rule_data, direction)
         tooltip(f"Linked current note to previous note using '{model_name}' rules")
     elif previous_or_next == 'next':
@@ -595,7 +594,7 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
         direction = LinkDirection.FROM_LATTER_TO_FORMER
         if both_ways:
             direction |= LinkDirection.FROM_FORMER_TO_LATTER
-        # Apply backward connection rules (current note -> next note)
+        # Apply backward link rules (current note -> next note)
         link_notes(current_note, adjacent_note, rule_data, direction)
         tooltip(f"Linked current note to next note using '{model_name}' rules")
     # Refresh the current card to reflect changes
