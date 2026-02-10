@@ -10,15 +10,21 @@ from aqt.utils import showInfo, tooltip
 
 import json
 import os
+from enum import Flag, auto
 
 # Global variable to store connection rules
 connection_rules = {}
 
 # Debug mode flag
-DEBUG_MODE = True
+# DEBUG_MODE = True
 
 # Menu and submenu references
 link_neighbours_menu: QMenu | None = None
+
+
+class LinkDirection(Flag):
+    FROM_LATTER_TO_FORMER = auto()
+    FROM_FORMER_TO_LATTER = auto()
 
 
 def get_notes_by_model(model_name: str, sort_field: str = None):
@@ -40,7 +46,7 @@ def get_notes_by_model(model_name: str, sort_field: str = None):
     if sort_field is None:
         # Get the sort field index from the model
         sort_field_idx = model.get('sortf', 0)  # Default to first field if no sort field specified
-        
+
         # Get the field name using the index
         if 0 <= sort_field_idx < len(model['flds']):
             sort_field = model['flds'][sort_field_idx]['name']
@@ -54,8 +60,6 @@ def get_notes_by_model(model_name: str, sort_field: str = None):
     notes = []
     for nid in note_ids:
         note = mw.col.get_note(nid)
-        # if DEBUG_MODE:
-        #     showInfo(f"Note ID: {nid}\nNote Fields: {dict(note.items())}")
         notes.append(note)
 
     # Sort notes by the specified field
@@ -72,7 +76,8 @@ def get_notes_by_model(model_name: str, sort_field: str = None):
 def load_connection_rules():
     """Load connection rules from JSON file"""
     global connection_rules
-    config_path = os.path.join(mw.pm.addonFolder(), "link_neighbours_config.json")
+    current_folder = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_folder, "rules.json")
     if os.path.exists(config_path):
         with open(config_path, 'r', encoding='utf-8') as f:
             connection_rules = json.load(f)
@@ -83,17 +88,18 @@ def load_connection_rules():
 def save_connection_rules():
     """Save connection rules to JSON file"""
     global connection_rules
-    config_path = os.path.join(mw.pm.addonFolder(), "link_neighbours_config.json")
+    current_folder = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(current_folder, "rules.json")
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(connection_rules, f, ensure_ascii=False, indent=4)
 
 
-def connect_notes(former_note, latter_note, rule_data):
+def link_notes(former_note, latter_note, rule_data, direction: LinkDirection):
     """
     Connect current note to previous note based on forward connection rules
     This applies the "forward connection" rules: values from current note go to previous note
     """
-    if "forward_rules" in rule_data:
+    if LinkDirection.FROM_LATTER_TO_FORMER in direction and "forward_rules" in rule_data:
         for rule in rule_data["forward_rules"]:
             source_field = rule["source_field"]
             target_field = rule["target_field"]
@@ -104,7 +110,7 @@ def connect_notes(former_note, latter_note, rule_data):
         # Save the previous note with updated fields
         mw.col.update_note(former_note)
 
-    if "backward_rules" in rule_data:
+    if LinkDirection.FROM_FORMER_TO_LATTER in direction and "backward_rules" in rule_data:
         for rule in rule_data["backward_rules"]:
             source_field = rule["source_field"]
             target_field = rule["target_field"]
@@ -134,7 +140,7 @@ def init_link_neighbours_menu():
 
     # Load and add saved rules to submenu
     load_connection_rules()
-    
+
     # Add separator only if there are saved rules
     if connection_rules:
         link_neighbours_menu.addSeparator()
@@ -168,7 +174,7 @@ def update_link_neighbours_menu():
 
 class NoteTemplateSelectionDialog(QDialog):
     """Dialog for selecting a note template before creating connection rules"""
-    
+
     def __init__(self):
         QDialog.__init__(self, mw)
         self.selected_template = None
@@ -176,38 +182,38 @@ class NoteTemplateSelectionDialog(QDialog):
         self.confirm_button = QPushButton("Confirm Selection")
         self.cancel_button = QPushButton("Cancel")
         self.setup_ui()
-        
+
     def setup_ui(self):
         """Set up the dialog UI"""
         self.setWindowTitle("Select Note Template")
         self.setModal(True)
-        
+
         layout = QVBoxLayout()
-        
+
         # Instructions label
         instruction_label = QLabel("Please select a note template to create connection rules for:")
         instruction_label.setWordWrap(True)
         layout.addWidget(instruction_label)
-        
+
         # Template list
         layout.addWidget(self.template_list)
-        
+
         # Buttons
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.confirm_button)
         button_layout.addWidget(self.cancel_button)
         layout.addLayout(button_layout)
-        
+
         self.setLayout(layout)
-        
+
         # Populate templates
         self.populate_templates()
-        
+
         # Connect signals
         qconnect(self.confirm_button.clicked, self.confirm_selection)
         qconnect(self.cancel_button.clicked, self.reject)
         qconnect(self.template_list.itemDoubleClicked, self.confirm_selection)
-        
+
     def populate_templates(self):
         """Populate the template list with available note types"""
         if mw.col:
@@ -216,7 +222,7 @@ class NoteTemplateSelectionDialog(QDialog):
                 item = QListWidgetItem(nt['name'])
                 item.setData(Qt.ItemDataRole.UserRole, nt['id'])
                 self.template_list.addItem(item)
-                
+
     def confirm_selection(self):
         """Confirm the selected template"""
         selected_items = self.template_list.selectedItems()
@@ -261,9 +267,11 @@ class ConnectionRuleDialog(QDialog):
         self.forward_target_combos = []
         self.backward_source_combos = []
         self.backward_target_combos = []
-        
-        self.forward_group = self.create_connection_area("How to copy from the latter to the former", "forward")
-        self.backward_group = self.create_connection_area("How to copy from the former to the latter", "backward")
+
+        self.forward_group = self.create_rules_area("How to link from the latter to the former",
+                                                    LinkDirection.FROM_LATTER_TO_FORMER)
+        self.backward_group = self.create_rules_area("How to link from the former to the latter",
+                                                     LinkDirection.FROM_FORMER_TO_LATTER)
         self.save_button = QPushButton("Save")
         self.cancel_button = QPushButton("Cancel")
         self.setup_ui()
@@ -305,7 +313,7 @@ class ConnectionRuleDialog(QDialog):
         qconnect(self.save_button.clicked, self.save_rule)
         qconnect(self.cancel_button.clicked, self.reject)
 
-    def create_connection_area(self, title, direction):
+    def create_rules_area(self, title, direction: LinkDirection):
         """Create a group box for connection rules"""
         group = QGroupBox(title)
         group_layout = QVBoxLayout()
@@ -315,35 +323,39 @@ class ConnectionRuleDialog(QDialog):
         scroll_widget = QWidget()
         scroll_layout = QVBoxLayout(scroll_widget)
 
+        # Add rule button
+        add_rule_btn = QPushButton("Add Rule")
+
         # Store references to rule widgets
-        if direction == "forward":
+        if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             self.forward_rules_layout = scroll_layout
-        else:  # backward
+            self.add_forward_rule_btn = add_rule_btn
+        if direction == LinkDirection.FROM_FORMER_TO_LATTER:  # backward
             self.backward_rules_layout = scroll_layout
+            self.add_backward_rule_btn = add_rule_btn
+        else:
+            raise Exception(f"unexpected direction received: {direction}")
 
         scroll_area.setWidget(scroll_widget)
         scroll_area.setWidgetResizable(True)
 
         group_layout.addWidget(scroll_area)
 
-        # Add rule button
-        add_rule_btn = QPushButton("Add Rule")
-        if direction == "forward":
-            self.add_forward_rule_btn = add_rule_btn
-        else:  # backward
-            self.add_backward_rule_btn = add_rule_btn
-        qconnect(add_rule_btn.clicked, lambda: self.add_rule_field(direction))
+        qconnect(add_rule_btn.clicked, lambda: self.add_rule_row(direction))
         group_layout.addWidget(add_rule_btn)
 
         group.setLayout(group_layout)
 
         return group
 
-    def add_rule_field(self, direction):
-        """Add a new rule field row for the specified direction (forward/backward)"""
-        layout = self.forward_rules_layout if direction == "forward" else self.backward_rules_layout
-        source = "latter" if direction == "forward" else "former"
-        target = "former" if direction == "forward" else "latter"
+    def add_rule_row(self, direction: LinkDirection):
+        """Add a new rule row for the specified direction (forward/backward)"""
+        if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
+            layout = self.forward_rules_layout
+            source, target = "latter", "former"
+        else:  # backward
+            layout = self.backward_rules_layout
+            source, target = "former", "latter"
 
         # Create a horizontal layout for the rule
         rule_layout = QHBoxLayout()
@@ -382,26 +394,28 @@ class ConnectionRuleDialog(QDialog):
         layout.addLayout(rule_layout)
 
         # Store reference to combos to update later
-        if direction == "forward":
+        if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             self.forward_source_combos.append(source_combo)
             self.forward_target_combos.append(target_combo)
         else:  # backward
             self.backward_source_combos.append(source_combo)
             self.backward_target_combos.append(target_combo)
 
-    def get_fields_for_template(self, template_name):
+    @staticmethod
+    def get_fields_for_template(template_name):
         """Get fields for a specific template"""
         if not mw.col:
             return []
-        
+
         note_types = mw.col.models.all()
         for nt in note_types:
             if nt['name'] == template_name:
                 return [f['name'] for f in nt['flds']]
-        
+
         return []
 
-    def remove_rule_field(self, rule_layout, parent_layout):
+    @staticmethod
+    def remove_rule_field(rule_layout, parent_layout):
         """Remove a rule field row"""
         # Remove all widgets in the rule layout
         for i in reversed(range(rule_layout.count())):
@@ -421,10 +435,10 @@ class ConnectionRuleDialog(QDialog):
             self.note_type_display.setText(rule_data.get('note_type', ''))
 
             # Process both forward and backward rules using a helper function
-            for direction in ['forward', 'backward']:
-                rules = rule_data.get(f'{direction}_rules', [])
+            for (dirt_str, direction) in [('forward', LinkDirection.FROM_LATTER_TO_FORMER), ('backward', LinkDirection.FROM_FORMER_TO_LATTER)]:
+                rules = rule_data.get(f'{dirt_str}_rules', [])
                 for rule in rules:
-                    self.add_rule_field(direction)
+                    self.add_rule_row(direction)
                     # Get the last added combos
                     source_combos, target_combos = self._get_combos_by_direction(direction)
                     if source_combos:  # 确保列表不为空
@@ -439,9 +453,9 @@ class ConnectionRuleDialog(QDialog):
                         if target_index >= 0:
                             target_combo.setCurrentIndex(target_index)
 
-    def _get_combos_by_direction(self, direction):
+    def _get_combos_by_direction(self, direction: LinkDirection):
         """Helper method to get the appropriate combo lists based on direction"""
-        if direction == 'forward':
+        if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             return self.forward_source_combos, self.forward_target_combos
         else:  # backward
             return self.backward_source_combos, self.backward_target_combos
@@ -487,15 +501,17 @@ class ConnectionRuleDialog(QDialog):
 
         self.accept()
 
+
+'''
 # Add keyboard shortcuts for linking notes during review
 def setup_review_shortcuts():
     """Setup keyboard shortcuts for linking notes during review"""
     from aqt import gui_hooks
 
     # def on_review_shortcuts(ease_tuple, reviewer, card):
-        # This hook is for modifying the ease tuple before answering a card
-        # For adding shortcuts, we should use a different hook
-        # return ease_tuple
+    # This hook is for modifying the ease tuple before answering a card
+    # For adding shortcuts, we should use a different hook
+    # return ease_tuple
 
     # Actually, shortcuts should be added via the reviewer_shortcuts hook
     def on_shortcuts_shortcuts(shortcuts, reviewer):
@@ -507,6 +523,7 @@ def setup_review_shortcuts():
     # gui_hooks.reviewer_will_answer_card.append(on_review_shortcuts)
     # gui_hooks.reviewer_shortcuts.append(on_shortcuts_shortcuts)
     gui_hooks.reviewer_did_init.append(on_shortcuts_shortcuts)
+'''
 
 
 def find_index(notes, note: Note):
@@ -520,11 +537,12 @@ def find_index(notes, note: Note):
     raise ValueError('index out of range')
 
 
-def link_with_adjacent_note(reviewer, direction):
+def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False):
     """
     Link current note with adjacent note (previous or next) in sequence
     :param reviewer: Anki reviewer object
-    :param direction: 'previous' to link with previous note, 'next' to link with next note
+    :param previous_or_next: 'previous' to link with previous note, 'next' to link with next note
+    :param both_ways: True to copy in both ways, False only from the other note to current note
     """
     if not mw.col:
         return
@@ -546,52 +564,43 @@ def link_with_adjacent_note(reviewer, direction):
     # Get all notes of this type, sorted
     all_notes = get_notes_by_model(model_name)
 
-    # Debug information - only shown when debug flag is True
-    # if DEBUG_MODE:
-        # showInfo(f"Debug - Model name: {model_name}\nNumber of notes: {len(all_notes)}")
-        # showInfo(f"{dict(current_note.items())}")
-
     # Find current note in the list
     try:
         current_index = find_index(all_notes, current_note)
-        # showInfo(f"{current_index}")
     except ValueError:
         showInfo("Current note not found in sorted list")
         return
 
     # Process based on direction
-    if direction == 'previous':
+    if previous_or_next == 'previous':
         # Check if there's a previous note
         if current_index <= 0:
             showInfo("No previous note to link to")
             return
 
         adjacent_note = all_notes[current_index - 1]
+        direction = LinkDirection.FROM_FORMER_TO_LATTER
+        if both_ways:
+            direction |= LinkDirection.FROM_LATTER_TO_FORMER
         # Apply forward connection rules (current note -> previous note)
-        connect_notes(adjacent_note, current_note, rule_data)
+        link_notes(adjacent_note, current_note, rule_data, direction)
         tooltip(f"Linked current note to previous note using '{model_name}' rules")
-    elif direction == 'next':
+    elif previous_or_next == 'next':
         # Check if there's a next note
         if current_index >= len(all_notes) - 1:
             showInfo("No next note to link to")
             return
 
         adjacent_note = all_notes[current_index + 1]
+        direction = LinkDirection.FROM_LATTER_TO_FORMER
+        if both_ways:
+            direction |= LinkDirection.FROM_FORMER_TO_LATTER
         # Apply backward connection rules (current note -> next note)
-        connect_notes(current_note, adjacent_note, rule_data)
+        link_notes(current_note, adjacent_note, rule_data, direction)
         tooltip(f"Linked current note to next note using '{model_name}' rules")
     # Refresh the current card to reflect changes
+    # noinspection PyProtectedMember
     reviewer._redraw_current_card()
-
-
-def link_with_previous_note(reviewer):
-    """Link current note with the previous note in sequence"""
-    link_with_adjacent_note(reviewer, 'previous')
-
-
-def link_with_next_note(reviewer):
-    """Link current note with the next note in sequence"""
-    link_with_adjacent_note(reviewer, 'next')
 
 
 def setup_review_context_menu():
@@ -606,14 +615,22 @@ def setup_review_context_menu():
             menu.addSeparator()
 
             # Add "Link with Previous Note" action
-            prev_action = QAction("Link with Previous Note", mw)
+            prev_action = QAction("Link by Copying from Previous Note", mw)
             prev_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'previous'))
             menu.addAction(prev_action)
 
             # Add "Link with Next Note" action
-            next_action = QAction("Link with Next Note", mw)
+            next_action = QAction("Link by Copying from Next Note", mw)
             next_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
             menu.addAction(next_action)
+
+            prev_bothways_action = QAction("Link with Previous Note (Bothways)", mw)
+            prev_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'previous', True))
+            menu.addAction(prev_bothways_action)
+
+            next_bothways_action = QAction("Link with Next Note (Bothways)", mw)
+            next_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
+            menu.addAction(next_bothways_action)
 
     # Register the hook
     gui_hooks.webview_will_show_context_menu.append(on_webview_will_show_context_menu)
@@ -621,9 +638,6 @@ def setup_review_context_menu():
 
 # Initialize the menu when addon loads
 init_link_neighbours_menu()
-
-# Setup shortcuts when addon loads
-# setup_review_shortcuts()
 
 # Setup context menu when addon loads
 setup_review_context_menu()

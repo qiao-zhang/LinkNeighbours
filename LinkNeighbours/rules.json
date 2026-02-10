@@ -1,0 +1,29 @@
+{
+    "Subs2Anki": {
+        "note_type": "Subs2Anki",
+        "forward_rules": [
+            {
+                "source_field": "CurrentBack",
+                "target_field": "After"
+            },
+            {
+                "source_field": "Audio",
+                "target_field": "AfterAudio"
+            }
+        ],
+        "backward_rules": [
+            {
+                "source_field": "CurrentBack",
+                "target_field": "Before"
+            },
+            {
+                "source_field": "Audio",
+                "target_field": "BeforeAudio"
+            },
+            {
+                "source_field": "CurrentBack",
+                "target_field": "Before"
+            }
+        ]
+    }
+}
