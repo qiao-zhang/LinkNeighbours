@@ -18,7 +18,7 @@ connection_rules = {}
 DEBUG_MODE = True
 
 # Menu and submenu references
-link_neighbours_menu: QMenu = None
+link_neighbours_menu: QMenu | None = None
 
 
 def get_notes_by_model(model_name: str, sort_field: str = None):
@@ -59,12 +59,12 @@ def get_notes_by_model(model_name: str, sort_field: str = None):
         notes.append(note)
 
     # Sort notes by the specified field
-    # if sort_field in [f['name'] for f in model['flds']]:
+    if sort_field in [f['name'] for f in model['flds']]:
         # If sort_field is a custom field, sort by that field
-        # notes.sort(key=lambda x: x[sort_field].lower())
-    # else:
+        notes.sort(key=lambda x: x[sort_field].lower())
+    else:
         # Default to sorting by creation time
-        # notes.sort(key=lambda x: x.id)
+        notes.sort(key=lambda x: x.id)
 
     return notes
 
