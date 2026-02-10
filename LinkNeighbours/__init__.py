@@ -2,7 +2,7 @@
 from anki.cards import Card
 from anki.models import NotetypeDict
 from anki.notes import Note
-from aqt import mw
+from aqt import mw, gui_hooks
 # import all the Qt GUI library
 from aqt.qt import *
 # import the "show info" tool from utils.py
@@ -11,6 +11,9 @@ from aqt.utils import showInfo, tooltip
 import json
 import os
 from enum import Flag, auto
+
+# Import internationalization
+from .i18n import tr, init_i18n
 
 # Global variable to store link rules
 link_rules = {}
@@ -133,9 +136,9 @@ def init_link_neighbours_menu():
         mw.form.menuTools.removeAction(link_neighbours_menu.menuAction())
 
     # Create main menu
-    link_neighbours_menu = QMenu("LinkNeighbours", mw)
+    link_neighbours_menu = QMenu(tr("link_neighbours_menu"), mw)
 
-    new_rule_action = QAction("New Link Rule Set", mw)
+    new_rule_action = QAction(tr("new_link_rule_set"), mw)
     qconnect(new_rule_action.triggered, open_new_rule_dialog)
     link_neighbours_menu.addAction(new_rule_action)
 
@@ -180,19 +183,19 @@ class NoteTemplateSelectionDialog(QDialog):
         QDialog.__init__(self, mw)
         self.selected_template = None
         self.template_list = QListWidget()
-        self.confirm_button = QPushButton("Confirm Selection")
-        self.cancel_button = QPushButton("Cancel")
+        self.confirm_button = QPushButton(tr("confirm_selection"))
+        self.cancel_button = QPushButton(tr("cancel"))
         self.setup_ui()
 
     def setup_ui(self):
         """Set up the dialog UI"""
-        self.setWindowTitle("Select Note Template")
+        self.setWindowTitle(tr("select_note_template"))
         self.setModal(True)
 
         layout = QVBoxLayout()
 
         # Instructions label
-        instruction_label = QLabel("Please select a note template to create link rules for:")
+        instruction_label = QLabel(tr("please_select_note_template"))
         instruction_label.setWordWrap(True)
         layout.addWidget(instruction_label)
 
@@ -269,32 +272,32 @@ class LinkRuleDialog(QDialog):
         self.backward_source_combos = []
         self.backward_target_combos = []
 
-        self.forward_group = self.create_rules_area("How to copy contents from the latter to the former",
+        self.forward_group = self.create_rules_area(tr("how_to_copy_contents_from_latter_to_former"),
                                                     LinkDirection.FROM_LATTER_TO_FORMER)
-        self.backward_group = self.create_rules_area("How to copy contents the former to the latter",
+        self.backward_group = self.create_rules_area(tr("how_to_copy_contents_from_former_to_latter"),
                                                      LinkDirection.FROM_FORMER_TO_LATTER)
-        self.save_button = QPushButton("Save")
-        self.cancel_button = QPushButton("Cancel")
+        self.save_button = QPushButton(tr("save"))
+        self.cancel_button = QPushButton(tr("cancel"))
         self.setup_ui()
         if note_type_name and note_type_name in link_rules:
             self.load_rule_data(note_type_name)
 
     def setup_ui(self):
         """Set up the dialog UI"""
-        self.setWindowTitle("Link Rule Editor")
+        self.setWindowTitle(tr("link_rule_set_editor"))
         self.setModal(True)
 
         layout = QVBoxLayout()
 
-        # Note type display (不可编辑，仅显示)
+        # Note type display
         note_type_layout = QHBoxLayout()
-        note_type_layout.addWidget(QLabel("When we link 2 notes of Note Type:"))
+        note_type_layout.addWidget(QLabel(tr("when_we_link_2_notes_of_note_type")))
         if self.template_name:
             self.note_type_display.setText(self.template_name)
         elif self.note_type_name:
             self.note_type_display.setText(self.note_type_name)
         else:
-            self.note_type_display.setText("<No template selected>")
+            self.note_type_display.setText(tr("no_template_selected"))
         note_type_layout.addWidget(self.note_type_display)
         layout.addLayout(note_type_layout)
 
@@ -325,7 +328,7 @@ class LinkRuleDialog(QDialog):
         scroll_layout = QVBoxLayout(scroll_widget)
 
         # Add rule button
-        add_rule_btn = QPushButton("Add Rule")
+        add_rule_btn = QPushButton(tr("add_rule"))
 
         # Store references to rule widgets
         if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
@@ -353,10 +356,10 @@ class LinkRuleDialog(QDialog):
         """Add a new rule row for the specified direction (forward/backward)"""
         if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             layout = self.forward_rules_layout
-            source, target = "latter", "former"
+            source, target = tr("from_of_latter"), tr("to_of_former")
         elif direction == LinkDirection.FROM_FORMER_TO_LATTER:  # backward
             layout = self.backward_rules_layout
-            source, target = "former", "latter"
+            source, target = tr("from_of_former"), tr("to_of_latter")
         else:
             raise Exception(f"unexpected direction received: {direction}")
 
@@ -368,13 +371,13 @@ class LinkRuleDialog(QDialog):
         fields = self.get_fields_for_template(current_template)
 
         # Source field combo
-        source_label = QLabel(f"From (of {source}):")
+        source_label = QLabel(source)
         source_combo = QComboBox()
         source_combo.addItems(fields)
         source_combo.setEditable(False)
 
         # Target field combo
-        target_label = QLabel(f"To (of {target}):")
+        target_label = QLabel(target)
         target_combo = QComboBox()
         target_combo.addItems(fields)
         target_combo.setEditable(False)
@@ -386,7 +389,7 @@ class LinkRuleDialog(QDialog):
         rule_layout.addWidget(target_combo)
 
         # Remove button
-        remove_btn = QPushButton("Remove")
+        remove_btn = QPushButton(tr("remove"))
         qconnect(remove_btn.clicked, lambda: self.remove_rule(rule_layout, layout, source_combo, target_combo, direction))
         rule_layout.addWidget(remove_btn)
 
@@ -568,7 +571,7 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
 
     # Check if we have rules for this note type
     if model_name not in link_rules:
-        showInfo(f"No link rules defined for note type: {model_name}")
+        showInfo(tr("no_link_rules_defined_for_note_type", note_type=model_name))
         return
 
     rule_data = link_rules[model_name]
@@ -580,14 +583,14 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
     try:
         current_index = find_index(all_notes, current_note)
     except ValueError:
-        showInfo("Current note not found in sorted list")
+        showInfo(tr("current_note_not_found_in_sorted_list"))
         return
 
     # Process based on direction
     if previous_or_next == 'previous':
         # Check if there's a previous note
         if current_index <= 0:
-            showInfo("No previous note to link to")
+            showInfo(tr("no_previous_note_to_link_to"))
             return
 
         adjacent_note = all_notes[current_index - 1]
@@ -596,11 +599,11 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
             direction |= LinkDirection.FROM_LATTER_TO_FORMER
         # Apply forward link rules (current note -> previous note)
         link_notes(adjacent_note, current_note, rule_data, direction)
-        tooltip(f"Linked current note to previous note using '{model_name}' rules")
+        tooltip(tr("linked_current_note_to_previous_note_using_rules", note_type=model_name))
     elif previous_or_next == 'next':
         # Check if there's a next note
         if current_index >= len(all_notes) - 1:
-            showInfo("No next note to link to")
+            showInfo(tr("no_next_note_to_link_to"))
             return
 
         adjacent_note = all_notes[current_index + 1]
@@ -609,7 +612,7 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
             direction |= LinkDirection.FROM_FORMER_TO_LATTER
         # Apply backward link rules (current note -> next note)
         link_notes(current_note, adjacent_note, rule_data, direction)
-        tooltip(f"Linked current note to next note using '{model_name}' rules")
+        tooltip(tr("linked_current_note_to_next_note_using_rules", note_type=model_name))
     # Refresh the current card to reflect changes
     # noinspection PyProtectedMember
     reviewer._redraw_current_card()
@@ -617,7 +620,6 @@ def link_with_adjacent_note(reviewer, previous_or_next, both_ways: bool = False)
 
 def setup_review_context_menu():
     """Setup context menu items for linking notes during review"""
-    from aqt import gui_hooks
     from aqt.qt import QAction
 
     def on_webview_will_show_context_menu(webview, menu):
@@ -627,20 +629,20 @@ def setup_review_context_menu():
             menu.addSeparator()
 
             # Add "Link with Previous Note" action
-            prev_action = QAction("Link by Copying from Previous Note", mw)
+            prev_action = QAction(tr("link_by_copying_from_previous_note"), mw)
             prev_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'previous'))
             menu.addAction(prev_action)
 
             # Add "Link with Next Note" action
-            next_action = QAction("Link by Copying from Next Note", mw)
+            next_action = QAction(tr("link_by_copying_from_next_note"), mw)
             next_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
             menu.addAction(next_action)
 
-            prev_bothways_action = QAction("Link with Previous Note (Bothways)", mw)
+            prev_bothways_action = QAction(tr("link_with_previous_note_bothways"), mw)
             prev_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'previous', True))
             menu.addAction(prev_bothways_action)
 
-            next_bothways_action = QAction("Link with Next Note (Bothways)", mw)
+            next_bothways_action = QAction(tr("link_with_next_note_bothways"), mw)
             next_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
             menu.addAction(next_bothways_action)
 
@@ -648,8 +650,14 @@ def setup_review_context_menu():
     gui_hooks.webview_will_show_context_menu.append(on_webview_will_show_context_menu)
 
 
+# def init_addon():
+init_i18n()
+
 # Initialize the menu when addon loads
 init_link_neighbours_menu()
 
 # Setup context menu when addon loads
 setup_review_context_menu()
+
+
+# gui_hooks.profile_did_open.append(init_addon)
