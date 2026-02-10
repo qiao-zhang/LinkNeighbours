@@ -329,7 +329,7 @@ class LinkRuleDialog(QDialog):
         if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             self.forward_rules_layout = scroll_layout
             self.add_forward_rule_btn = add_rule_btn
-        if direction == LinkDirection.FROM_FORMER_TO_LATTER:  # backward
+        elif direction == LinkDirection.FROM_FORMER_TO_LATTER:  # backward
             self.backward_rules_layout = scroll_layout
             self.add_backward_rule_btn = add_rule_btn
         else:
@@ -352,9 +352,11 @@ class LinkRuleDialog(QDialog):
         if direction == LinkDirection.FROM_LATTER_TO_FORMER:  # forward
             layout = self.forward_rules_layout
             source, target = "latter", "former"
-        else:  # backward
+        elif direction == LinkDirection.FROM_FORMER_TO_LATTER:  # backward
             layout = self.backward_rules_layout
             source, target = "former", "latter"
+        else:
+            raise Exception(f"unexpected direction received: {direction}")
 
         # Create a horizontal layout for the rule
         rule_layout = QHBoxLayout()
@@ -383,7 +385,7 @@ class LinkRuleDialog(QDialog):
 
         # Remove button
         remove_btn = QPushButton("Remove")
-        qconnect(remove_btn.clicked, lambda: self.remove_rule_field(rule_layout, layout))
+        qconnect(remove_btn.clicked, lambda: self.remove_rule(rule_layout, layout, source_combo, target_combo, direction))
         rule_layout.addWidget(remove_btn)
 
         # Add stretch to fill space
@@ -413,8 +415,7 @@ class LinkRuleDialog(QDialog):
 
         return []
 
-    @staticmethod
-    def remove_rule_field(rule_layout, parent_layout):
+    def remove_rule(self, rule_layout, parent_layout, source_combo, target_combo, direction: LinkDirection):
         """Remove a rule field row"""
         # Remove all widgets in the rule layout
         for i in reversed(range(rule_layout.count())):
@@ -424,6 +425,16 @@ class LinkRuleDialog(QDialog):
 
         # Remove the layout from parent
         parent_layout.removeItem(rule_layout)
+
+        if direction == LinkDirection.FROM_LATTER_TO_FORMER:
+            self.forward_source_combos.remove(source_combo)
+            self.forward_target_combos.remove(target_combo)
+        elif direction == LinkDirection.FROM_FORMER_TO_LATTER:
+            self.backward_source_combos.remove(source_combo)
+            self.backward_target_combos.remove(target_combo)
+        else:
+            raise Exception(f"unexpected direction received: {direction}")
+
 
     def load_rule_data(self, rule_name):
         """Load existing rule data"""
