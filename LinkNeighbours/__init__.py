@@ -6,7 +6,7 @@ from aqt import mw
 # import all the Qt GUI library
 from aqt.qt import *
 # import the "show info" tool from utils.py
-from aqt.utils import showInfo
+from aqt.utils import showInfo, tooltip
 
 import json
 import os
@@ -569,7 +569,7 @@ def link_with_adjacent_note(reviewer, direction):
         adjacent_note = all_notes[current_index - 1]
         # Apply forward connection rules (current note -> previous note)
         connect_notes(adjacent_note, current_note, rule_data)
-        showInfo(f"Linked current note to previous note using '{model_name}' rules")
+        tooltip(f"Linked current note to previous note using '{model_name}' rules")
     elif direction == 'next':
         # Check if there's a next note
         if current_index >= len(all_notes) - 1:
@@ -579,7 +579,9 @@ def link_with_adjacent_note(reviewer, direction):
         adjacent_note = all_notes[current_index + 1]
         # Apply backward connection rules (current note -> next note)
         connect_notes(current_note, adjacent_note, rule_data)
-        showInfo(f"Linked current note to next note using '{model_name}' rules")
+        tooltip(f"Linked current note to next note using '{model_name}' rules")
+    # Refresh the current card to reflect changes
+    reviewer._redraw_current_card()
 
 
 def link_with_previous_note(reviewer):
