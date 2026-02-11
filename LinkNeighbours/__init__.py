@@ -643,7 +643,7 @@ def setup_review_context_menu():
             menu.addAction(prev_bothways_action)
 
             next_bothways_action = QAction(tr("link_with_next_note_bothways"), mw)
-            next_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next'))
+            next_bothways_action.triggered.connect(lambda: link_with_adjacent_note(mw.reviewer, 'next', True))
             menu.addAction(next_bothways_action)
 
     # Register the hook
